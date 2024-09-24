@@ -25,7 +25,7 @@ module "vpc" {
   public_subnets       = var.public_subnets
   private_subnets      = var.private_subnets
   enable_nat_gateway   = true
-  single_nat_gateway   = false
+  single_nat_gateway   = true
   enable_dns_hostnames = true
   enable_dns_support   = true
 
@@ -36,23 +36,6 @@ module "vpc" {
   }
 }
 
-# Security Group for ALB
-module "alb_sg" {
-  source  = "terraform-aws-modules/security-group/aws"
-  version = "5.2.0"
-
-  name        = "${var.application}-alb-sg-${var.environment}"
-  vpc_id      = module.vpc.vpc_id
-  description = "Security group for ALB"
-
-  ingress_rules       = ["http-80-tcp"]
-  ingress_cidr_blocks = var.allowed_ips
-
-  tags = {
-    Environment = var.environment
-    Application = var.application
-  }
-}
 
 # Security Group for EC2 Instance
 module "ec2_sg" {
@@ -66,7 +49,7 @@ module "ec2_sg" {
   ingress_with_source_security_group_id = [
     {
       rule                     = "http-80-tcp"
-      source_security_group_id = module.alb_sg.security_group_id
+      source_security_group_id = module.alb.security_group_id
       description              = "Allow HTTP from ALB"
     }
   ]
@@ -77,6 +60,12 @@ module "ec2_sg" {
     Environment = var.environment
     Application = var.application
   }
+}
+
+# Key Pair for SSH Access
+resource "aws_key_pair" "deployer_key" {
+  key_name   = var.key_name
+  public_key = file(var.public_key_path)
 }
 
 # IAM Role for SSM
@@ -125,6 +114,7 @@ module "ec2_instance" {
   subnet_id                   = module.vpc.private_subnets[0]
   vpc_security_group_ids      = [module.ec2_sg.security_group_id]
   associate_public_ip_address = false
+  key_name                    = aws_key_pair.deployer_key.key_name
   iam_instance_profile        = aws_iam_instance_profile.ec2_instance_profile.name
   user_data                   = file("userdata.sh")
   monitoring                  = true
@@ -145,7 +135,29 @@ module "alb" {
   load_balancer_type = "application"
   vpc_id             = module.vpc.vpc_id
   subnets            = module.vpc.public_subnets
-  security_groups    = [module.alb_sg.security_group_id]
+
+  security_group_ingress_rules = {
+    all_http = {
+      from_port   = 80
+      to_port     = 80
+      ip_protocol = "tcp"
+      description = "HTTP web traffic"
+      cidr_ipv4   = "0.0.0.0/0"
+    }
+    all_https = {
+      from_port   = 443
+      to_port     = 443
+      ip_protocol = "tcp"
+      description = "HTTPS web traffic"
+      cidr_ipv4   = "0.0.0.0/0"
+    }
+  }
+  security_group_egress_rules = {
+    all = {
+      ip_protocol = "-1"
+      cidr_ipv4   = var.vpc_cidr
+    }
+  }
 
   listeners = {
     http_listeners = {

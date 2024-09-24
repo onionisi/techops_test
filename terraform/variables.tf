@@ -3,11 +3,6 @@ variable "aws_region" {
   default = "ap-southeast-2"
 }
 
-variable "aws_profile" {
-  type    = string
-  default = "chong"
-}
-
 variable "vpc_cidr" {
   type        = string
   description = "CIDR block for the VPC"
@@ -17,13 +12,23 @@ variable "vpc_cidr" {
 variable "public_subnets" {
   type        = list(string)
   description = "List of public subnet CIDR blocks"
-  default     = ["10.0.1.0/24"]
+  default     = ["10.0.10.0/24", "10.0.11.0/24"]
 }
 
 variable "private_subnets" {
   type        = list(string)
   description = "List of private subnet CIDR blocks"
-  default     = ["10.0.2.0/24"]
+  default     = ["10.0.100.0/24", "10.0.101.0/24"]
+}
+
+variable "key_name" {
+  type    = string
+  default = "deployer_key"
+}
+
+variable "public_key_path" {
+  type    = string
+  default = "~/.ssh/techops.pub"
 }
 
 variable "instance_type" {
@@ -42,10 +47,4 @@ variable "environment" {
   type        = string
   description = "Deployment environment (e.g., development, staging, production)"
   default     = "development"
-}
-
-variable "allowed_ips" {
-  type        = list(string)
-  description = "List of CIDR blocks allowed to access the ALB"
-  default     = ["0.0.0.0/0"] # For ALB access; restrict in production
 }

@@ -1,6 +1,5 @@
 provider "aws" {
-  region  = var.aws_region
-  profile = var.aws_profile
+  region = var.aws_region
 }
 
 # Terraform Backend Configuration
@@ -11,6 +10,5 @@ terraform {
     region         = "ap-southeast-2"
     dynamodb_table = "terraform-lock-table"
     encrypt        = true
-    profile        = "chong"
   }
 }
