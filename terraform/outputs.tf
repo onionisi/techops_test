@@ -3,7 +3,7 @@ output "alb_dns_name" {
   value       = module.alb.dns_name
 }
 
-output "ec2_instance_ids" {
-  description = "EC2 instance IDs"
+output "ec2_instance_id" {
+  description = "EC2 instance ID"
   value       = module.ec2_instance.id
 }

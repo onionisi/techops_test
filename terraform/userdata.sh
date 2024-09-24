@@ -4,10 +4,10 @@
 apt-get update -y && apt-get upgrade -y
 
 # Install Required Packages
-apt-get install -y docker.io mailutils zip
+DEBIAN_FRONTEND=noninteractive apt-get install -y docker.io mailutils zip
 
 # Install docker-compose
-curl -L "https://github.com/docker/compose/releases/download/2.29.1/docker-compose-linux-x86_64" \
+curl -L "https://github.com/docker/compose/releases/download/v2.29.3/docker-compose-linux-x86_64" \
   -o /usr/local/bin/docker-compose
 chmod +x /usr/local/bin/docker-compose
 
@@ -59,6 +59,11 @@ services:
       database__connection__database: ghost_db
     volumes:
       - /home/ghostuser/ghost/ghost_content:/var/lib/ghost/content
+    deploy:
+      resources:
+        limits:
+          cpus: "0.5"
+          memory: 200M
     restart: always
 
   db:
@@ -72,6 +77,11 @@ services:
       MYSQL_ROOT_PASSWORD: root_password
     volumes:
       - /home/ghostuser/ghost/db_data:/var/lib/mysql
+    deploy:
+      resources:
+        limits:
+          cpus: "0.5"
+          memory: 300M
     healthcheck:
       test: ["CMD", "mysqladmin", "ping", "-h", "localhost", "--silent"]
       interval: 10s
@@ -80,7 +90,7 @@ services:
 EOL
 
 # Start Docker Compose
-docker compose up -d
+docker-compose up -d
 
 EOF
 
