@@ -24,70 +24,58 @@ module "vpc" {
   azs                  = slice(data.aws_availability_zones.available.names, 0, 2)
   public_subnets       = var.public_subnets
   private_subnets      = var.private_subnets
-  enable_nat_gateway   = false
-  single_nat_gateway   = true
+  enable_nat_gateway   = true
+  single_nat_gateway   = false
   enable_dns_hostnames = true
   enable_dns_support   = true
 
   tags = {
     Environment = var.environment
+    Application = var.application
     Terraform   = "true"
   }
 }
 
 # Security Group for ALB
-resource "aws_security_group" "alb_sg" {
+module "alb_sg" {
+  source  = "terraform-aws-modules/security-group/aws"
+  version = "5.2.0"
+
   name        = "${var.application}-alb-sg-${var.environment}"
-  description = "Security group for ALB"
   vpc_id      = module.vpc.vpc_id
+  description = "Security group for ALB"
 
-  ingress {
-    description = "Allow HTTP from allowed IPs"
-    from_port   = 80
-    to_port     = 80
-    protocol    = "tcp"
-    cidr_blocks = var.allowed_ips
-  }
-
-  egress {
-    description = "Allow all outbound traffic"
-    from_port   = 0
-    to_port     = 0
-    protocol    = "-1"
-    cidr_blocks = ["0.0.0.0/0"]
-  }
+  ingress_rules       = ["http-80-tcp"]
+  ingress_cidr_blocks = var.allowed_ips
 
   tags = {
     Environment = var.environment
-    Name        = "${var.application}-alb-sg-${var.environment}"
+    Application = var.application
   }
 }
 
 # Security Group for EC2 Instance
-resource "aws_security_group" "ec2_sg" {
+module "ec2_sg" {
+  source  = "terraform-aws-modules/security-group/aws"
+  version = "5.2.0"
+
   name        = "${var.application}-ec2-sg-${var.environment}"
-  description = "Security group for EC2 instance"
   vpc_id      = module.vpc.vpc_id
+  description = "Security group for EC2 instance"
 
-  ingress {
-    description     = "Allow traffic from ALB"
-    from_port       = 80
-    to_port         = 80
-    protocol        = "tcp"
-    security_groups = [aws_security_group.alb_sg.id]
-  }
+  ingress_with_source_security_group_id = [
+    {
+      rule                     = "http-80-tcp"
+      source_security_group_id = module.alb_sg.security_group_id
+      description              = "Allow HTTP from ALB"
+    }
+  ]
 
-  egress {
-    description = "Allow all outbound traffic"
-    from_port   = 0
-    to_port     = 0
-    protocol    = "-1"
-    cidr_blocks = ["0.0.0.0/0"]
-  }
+  egress_rules = ["all-all"]
 
   tags = {
     Environment = var.environment
-    Name        = "${var.application}-ec2-sg-${var.environment}"
+    Application = var.application
   }
 }
 
@@ -99,6 +87,7 @@ resource "aws_iam_role" "ec2_ssm_role" {
 
   tags = {
     Environment = var.environment
+    Application = var.application
   }
 }
 
@@ -130,67 +119,52 @@ module "ec2_instance" {
   source  = "terraform-aws-modules/ec2-instance/aws"
   version = "5.7.0"
 
-  name                        = "${var.application}-ghost-server-${var.environment}"
+  name                        = "${var.application}-ec2-${var.environment}"
   ami                         = data.aws_ami.ubuntu.id
   instance_type               = var.instance_type
   subnet_id                   = module.vpc.private_subnets[0]
-  vpc_security_group_ids      = [aws_security_group.ec2_sg.id]
+  vpc_security_group_ids      = [module.ec2_sg.security_group_id]
   associate_public_ip_address = false
   iam_instance_profile        = aws_iam_instance_profile.ec2_instance_profile.name
   user_data                   = file("userdata.sh")
+  monitoring                  = true
 
   tags = {
     Environment = var.environment
-    Name        = "${var.application}-ghost-server-${var.environment}"
-  }
-}
-
-# Target Group
-resource "aws_lb_target_group" "ghost_tg" {
-  name     = "${var.application}-ghost-tg-${var.environment}"
-  port     = 80
-  protocol = "HTTP"
-  vpc_id   = module.vpc.vpc_id
-
-  health_check {
-    path                = "/"
-    matcher             = "200-3997"
-    interval            = 30
-    unhealthy_threshold = 2
-    healthy_threshold   = 5
-    timeout             = 5
-  }
-
-  tags = {
-    Environment = var.environment
+    Application = var.application
+    Name        = "${var.application}-ec2-${var.environment}"
   }
 }
 
 # AWS ALB Module
 module "alb" {
   source  = "terraform-aws-modules/alb/aws"
-  version = "8.0.0"
+  version = "9.11.0"
 
   name               = "${var.application}-alb-${var.environment}"
   load_balancer_type = "application"
   vpc_id             = module.vpc.vpc_id
   subnets            = module.vpc.public_subnets
-  security_groups    = [aws_security_group.alb_sg.id]
+  security_groups    = [module.alb_sg.security_group_id]
 
-  http_tcp_listeners = [
-    {
-      port               = 80
-      protocol           = "HTTP"
-      target_group_index = 0
+  listeners = {
+    http_listeners = {
+      port     = 80
+      protocol = "HTTP"
+      forward = {
+        target_group_key = "ghost-target"
+      }
     }
-  ]
+  }
 
-  target_groups = [
-    {
-      name_prefix      = "ghost"
-      backend_protocol = "HTTP"
-      backend_port     = 80
-      target_type      = "instance"
+  target_groups = {
+    ghost-target = {
+      name_prefix = "cms-tg"
+      protocol    = "HTTP"
+      port        = 80 # Using port 80
+      target_type = "instance"
+      target_id   = module.ec2_instance.id
+
       health_check = {
         enabled             = true
         path                = "/"
@@ -201,17 +175,11 @@ module "alb" {
         timeout             = 5
       }
     }
-  ]
+  }
 
   tags = {
     Environment = var.environment
+    Application = var.application
     Terraform   = "true"
   }
-}
-
-# Attach EC2 Instance to Target Group
-resource "aws_lb_target_group_attachment" "ghost_tg_attachment" {
-  target_group_arn = module.alb.target_group_arns[0]
-  target_id        = module.ec2_instance.id
-  port             = 80
 }
