@@ -54,7 +54,7 @@ jobs:
 
       - name: Determine Changed Files
         id: changes
-        uses: tj-actions/changed-files@v35
+        uses: tj-actions/changed-files@v45
         with:
           files: |
             terraform/**
