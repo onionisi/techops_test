@@ -1,60 +1,112 @@
-name: Ghost release
+name: Ghost Deployment Pipeline
 
 on:
+  pull_request:
+    branches:
+      - main
+    paths:
+      - 'terraform/**'  # Monitor changes in the 'terraform' directory
   push:
     branches:
       - main
+    paths:
+      - '**'  # Monitor all changes
+
+env:
+  AWS_REGION: ap-souteast-2
 
 jobs:
-  plan:
+  terraform-plan:
     name: Terraform Plan
     runs-on: ubuntu-latest
-
+    if: github.event_name == 'pull_request'
     steps:
       - name: Checkout Code
         uses: actions/checkout@v4
 
-      - name: Setup Terraform
+      - name: Set up Terraform
         uses: hashicorp/setup-terraform@v3
         with:
-          terraform_version: 1.9.5
+          terraform_version: '1.9.5'
 
       - name: Configure AWS Credentials
         uses: aws-actions/configure-aws-credentials@v4
         with:
           aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
           aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
-          aws-region: ap-souteast-2
+          aws-region: ${{ env.AWS_REGION }}
 
-      - name: Terraform Init and Plan
-        working-directory: terraform
-        run: |
-          terraform init
-          terraform validate
-          terraform plan
+      - name: Terraform Init
+        working-directory: ./terraform
+        run: terraform init
+
+      - name: Terraform Plan
+        working-directory: ./terraform
+        run: terraform plan
 
   deploy:
-    name: Terraform Deploy
+    name: Deploy
     runs-on: ubuntu-latest
-
+    if: github.ref == 'refs/heads/main' && github.event_name == 'push'
     steps:
       - name: Checkout Code
         uses: actions/checkout@v4
 
-      - name: Setup Terraform
+      - name: Determine Changed Files
+        id: changes
+        uses: tj-actions/changed-files@v35
+        with:
+          files: |
+            terraform/**
+            ghost_content/**
+
+      - name: Set up Terraform
+        if: steps.changes.outputs.any_changed == 'true' && contains(steps.changes.outputs.modified_files, 'terraform/')
         uses: hashicorp/setup-terraform@v3
         with:
-          terraform_version: 1.9.5
+          terraform_version: '1.9.5'
 
-      - name: Configure AWS Credentials
+      - name: Configure AWS Credentials for Terraform
+        if: steps.changes.outputs.any_changed == 'true' && contains(steps.changes.outputs.modified_files, 'terraform/')
         uses: aws-actions/configure-aws-credentials@v4
         with:
           aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
           aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
-          aws-region: ap-souteast-2
+          aws-region: ${{ env.AWS_REGION }}
 
-      - name: Terraform Init and Apply
-        working-directory: terraform
+      - name: Terraform Init
+        if: steps.changes.outputs.any_changed == 'true' && contains(steps.changes.outputs.modified_files, 'terraform/')
+        working-directory: ./terraform
+        run: terraform init
+
+      - name: Terraform Apply
+        if: steps.changes.outputs.any_changed == 'true' && contains(steps.changes.outputs.modified_files, 'terraform/')
+        working-directory: ./terraform
+        run: terraform apply -auto-approve
+
+      - name: Configure AWS Credentials for SSM
+        if: steps.changes.outputs.any_changed == 'true' && contains(steps.changes.outputs.modified_files, 'ghost_content/')
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          aws-region: ${{ env.AWS_REGION }}
+
+      - name: Sync Ghost Content via rsync over SSM
+        if: steps.changes.outputs.any_changed == 'true' && contains(steps.changes.outputs.modified_files, 'ghost_content/')
+        env:
+          INSTANCE_ID: ${{ secrets.INSTANCE_ID }}
         run: |
-          terraform init
-          terraform apply -auto-approve
+          # Start port forwarding session for SSH
+          aws ssm start-session \
+            --target $INSTANCE_ID \
+            --document-name AWS-StartPortForwardingSessionToRemoteHost \
+            --parameters '{"host":["127.0.0.1"],"portNumber":["22"],"localPortNumber":["2222"]}' &
+          SSM_PID=$!
+          sleep 5  # Wait for the port forwarding session to establish
+
+          # Use rsync over the forwarded port
+          rsync -avz -e "ssh -p 2222 -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null" ./ghost_content/ ubuntu@localhost:/home/ghostuser/ghost/ghost_content
+
+          # Close the port forwarding session
+          kill $SSM_PID
