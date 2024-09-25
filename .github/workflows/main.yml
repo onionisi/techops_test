@@ -119,7 +119,7 @@ jobs:
             --document-name AWS-StartPortForwardingSessionToRemoteHost \
             --parameters '{"host":["127.0.0.1"],"portNumber":["22"],"localPortNumber":["2222"]}' &
           SSM_PID=$!
-          sleep 5  # Wait for the port forwarding session to establish
+          sleep 10  # Wait for the port forwarding session to establish
 
           # Use rsync over the forwarded port
           rsync -avz -e "ssh -i ~/.ssh/techops -p 2222 -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null" ./ghost_content/ ghostuser@localhost:/home/ghostuser/ghost/ghost_content/
