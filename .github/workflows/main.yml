@@ -24,10 +24,12 @@ jobs:
       - name: Checkout Code
         uses: actions/checkout@v4
 
-      - name: Set up SSH public keys
+      - name: Set up SSH keys
         run: |
           mkdir -p ~/.ssh
           echo "${{ secrets.SSH_PUBLIC_KEY }}" > ~/.ssh/techops.pub
+          echo "${{ secrets.SSH_PRIVATE_KEY }}" > ~/.ssh/techops
+          chmod 600 ~/.ssh/techops
           chmod 644 ~/.ssh/techops.pub
 
       - name: Set up Terraform
@@ -58,10 +60,12 @@ jobs:
       - name: Checkout Code
         uses: actions/checkout@v4
 
-      - name: Set up SSH public keys
+      - name: Set up SSH keys
         run: |
           mkdir -p ~/.ssh
           echo "${{ secrets.SSH_PUBLIC_KEY }}" > ~/.ssh/techops.pub
+          echo "${{ secrets.SSH_PRIVATE_KEY }}" > ~/.ssh/techops
+          chmod 600 ~/.ssh/techops
           chmod 644 ~/.ssh/techops.pub
 
       - name: Determine Changed Files
@@ -118,7 +122,7 @@ jobs:
           sleep 5  # Wait for the port forwarding session to establish
 
           # Use rsync over the forwarded port
-          rsync -avz -e "ssh -p 2222 -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null" ./ghost_content/ ubuntu@localhost:/home/ghostuser/ghost/ghost_content
+          rsync -avz -e "ssh -i ~/.ssh/techops -p 2222 -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null" ./ghost_content/ ghostuser@localhost:/home/ghostuser/ghost/ghost_content/
 
           # Close the port forwarding session
           kill $SSM_PID
