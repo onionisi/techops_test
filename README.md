@@ -174,6 +174,9 @@ The Ghost hosting solution is focused on security and efficient management. It f
 
   - Access the Ghost blog via the alb_dns_name output from terraform apply to confirm it's running correctly.
 
+  ![Terraform Output](./img/tf_output.png)
+  ![Ghost Screenshot](./img/ghost_screenshot.jpeg)
+
 ### 5. Future improvement or todo
 
 1. Customised domain with TLS termination on ALB.
